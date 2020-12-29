@@ -1,0 +1,308 @@
+第一套
+保存数据
+import time
+import serial
+
+ser = serial.Serial(
+    port='/dev/ttyUSB0',
+    baudrate=115200,
+    parity=serial.PARITY_ODD,  # 校验位
+    stopbits=serial.STOPBITS_TWO,  # 停止位
+    bytesize=serial.SEVENBITS  # 数据位
+)
+data = ''
+data2 = 'w'
+
+while True:
+    data = ser.readline()
+    t = time.time()
+    ct = time.ctime(t)
+    print(ct, ':')
+    print(data)
+
+#     f = open('F:/python/tmp_data1.txt', 'w')
+    f = open('/home/pi/Desktop/tmp_data1.txt', data2)
+#     f.writelines(data)
+#     f.writelines(':\n')
+    f.writelines(data.decode('utf-8'))
+    f.close()
+data2 = 'a'
+
+上传数据
+#-*-coding:utf-8 -*-
+from __future__ import print_function
+
+import paho.mqtt.client as mqtt
+import struct
+import json
+import datetime
+# CONNECT 方式：
+# client_id:     DEV_ID
+# username:  PRO_ID
+# password:   AUTHINFO(鉴权信息)
+# 可以连接上设备云，CONNECT 和 CONNACK握手成功
+# temperature:已创建的一个数据流
+#更多请查阅OneNet官方mqtt文档与paho-mqtt开发文档
+
+#修改成自己的即可
+DEV_ID = "639975353" #设备ID
+PRO_ID = "370205" #产品ID
+AUTH_INFO = "cAJgm9p4D1D1CFXMqHsQPz03vpI="  #APIKEY
+#AUTH_INFO = "159635"
+
+#file = open("/home/pi/ZB_data/tmp_data1.txt")
+file = open("/home/pi/Desktop/tmp_data1.txt")
+humidity= str(file.read())
+# humidity= float(10)
+time = datetime.datetime.now().isoformat()
+
+TYPE_JSON = 0x01
+TYPE_FLOAT = 0x17
+
+#定义上传数据的json格式  该格式是oneNET规定好的  按格式修改其中变量即可
+body = {
+        "datastreams":[
+                {
+                    "id":"humi",  #对应OneNet的数据流名称
+                    "datapoints":[
+                        {
+                            "at":time , #数据提交时间，这里可通过函数来获取实时时间
+                            "value":humidity   #数据值
+                            }
+                        ]
+                    }
+                ]
+            }
+
+
+def build_payload(type, payload):
+    datatype = type
+    packet = bytearray()
+    packet.extend(struct.pack("!B", datatype))
+    if isinstance(payload, str):
+        udata = payload.encode('utf-8')
+        length = len(udata)
+        packet.extend(struct.pack("!H" + str(length) + "s", length, udata))
+    return packet
+
+# 当客户端收到来自服务器的CONNACK响应时的回调。也就是申请连接，服务器返回结果是否成功等
+def on_connect(client, userdata, flags, rc):
+    print("连接结果:" + mqtt.connack_string(rc))
+    #上传数据
+    json_body = json.dumps(body)
+    packet = build_payload(TYPE_JSON, json_body)
+    client.publish("$dp", packet, qos=1)  #qos代表服务质量
+
+
+# 从服务器接收发布消息时的回调。
+def on_message(client, userdata, msg):
+    print("湿度:"+str(msg.payload,'utf-8')+"%RH")
+
+
+#当消息已经被发送给中间人，on_publish()回调将会被触发
+def on_publish(client, userdata, mid):
+    print("mid:" + str(mid))
+
+
+def main():
+    client = mqtt.Client(client_id=DEV_ID, protocol=mqtt.MQTTv311)
+    client.on_connect = on_connect
+    client.on_publish = on_publish
+    client.on_message = on_message
+
+    client.username_pw_set(username=PRO_ID, password=AUTH_INFO)
+    client.connect('183.230.40.39', port=6002, keepalive=120)
+
+    client.loop_forever()
+
+if __name__ == '__main__':
+    main()
+
+
+第二套
+数据库保存
+# coding=gbk
+#！ /user/bin/env python
+import sqlite3
+con = sqlite3.connect('collecttem.db')
+c = con.cursor()
+sql_str = '''
+CREATE TABLE DEVICE(
+ID INTEGER PRIMARY KEY       NOT NULL,
+temp      INTEGER
+);
+'''
+c.execute(sql_str)
+con.commit()
+con.close()
+保存数据
+# -*- conding:utf-8 -*-
+import serial
+import time
+import json
+import threading
+from time import ctime, sleep
+import queue
+
+q = queue.Queue()
+# ser = serial.Serial("/dev/ttyUSB0",115200)
+ser = serial.Serial("COM5", 115200, timeout=5)
+
+
+def Zigbee():
+    while True:
+        count = ser.inWaiting()
+        if count != 0:
+            recv = ser.readline()
+            ser.flushInput()
+            q.put(recv.decode())
+            data = recv.decode('utf-8')
+            print(recv.decode())
+        sleep(0.1)
+
+
+def Zigbee_json():
+    global recv
+    while True:
+        if q.empty():
+            pass
+        else:
+            data = q.get('gbk')
+      tmp_output = open('F://python文件//abc.txt', 'w')
+            tmp_output.write(data)
+            tmp_output.flush()
+            tmp_output.close()
+            print(data)
+            sleep(1)
+
+
+threads = []
+t1 = threading.Thread(target=Zigbee)
+threads.append(t1)
+t2 = threading.Thread(target=Zigbee_json)
+threads.append(t2)
+if __name__ == '__main__':
+    for t in threads:
+        t.start()
+    t1.join()
+    t2.join()
+    while True:
+        sleep(2)
+上传数据
+# -*-coding:utf-8 -*-
+from __future__ import print_function
+import time
+import paho.mqtt.client as mqtt
+import struct
+import json
+import datetime
+
+# CONNECT 方式：
+# client_id:     DEV_ID
+# username:  PRO_ID
+# password:   AUTHINFO(鉴权信息)
+# 可以连接上设备云，CONNECT 和 CONNACK握手成功
+# temperature:已创建的一个数据流
+# 更多请查阅OneNet官方mqtt文档与paho-mqtt开发文档
+
+# 修改成自己的即可
+DEV_ID = "628644050" #设备ID
+PRO_ID = "371529" #产品ID
+AUTH_INFO = "IPD8bK3=IX9lDZxCuGiof7ERvek="  #APIKEY
+temperature = ''
+
+
+def read():
+    global temperature
+    with open('F://python文件//abc.txt') as file:
+        temperature = float(file.read())
+
+    # humidity= float(20)
+
+
+time1 = datetime.datetime.now().isoformat()
+
+TYPE_JSON = 0x01
+TYPE_FLOAT = 0x17
+
+
+# 定义上传数据的json格式  该格式是oneNET规定好的  按格式修改其中变量即可
+# body = {
+#         "datastreams":[
+#                 {
+#                     "id":"temp",  #对应OneNet的数据流名称
+#                     "datapoints":[
+#                         {
+#                             "at":time , #数据提交时间，这里可通过函数来获取实时时间
+#                             "value":temperature#数据值
+#                             }
+#                         ]
+#                     }
+#                 ]
+#             }
+
+
+def build_payload(type, payload):
+    datatype = type
+    packet = bytearray()
+    packet.extend(struct.pack("!B", datatype))
+    if isinstance(payload, str):
+        udata = payload.encode('utf-8')
+        length = len(udata)
+        packet.extend(struct.pack("!H" + str(length) + "s", length, udata))
+    return packet
+
+
+# 当客户端收到来自服务器的CONNACK响应时的回调。也就是申请连接，服务器返回结果是否成功等
+def on_connect(client, userdata, flags, rc):
+    read()
+    time.sleep(3)
+    print("连接结果:" + mqtt.connack_string(rc))
+    # 上传数据
+    body = {
+        "datastreams": [
+            {
+                "id": "temp",  # 对应OneNet的数据流名称
+                "datapoints": [
+                    {
+                        "at": time1,  # 数据提交时间，这里可通过函数来获取实时时间
+                        "value": temperature  # 数据值
+                    }
+                ]
+            }
+        ]
+    }
+
+    json_body = json.dumps(body)
+    packet = build_payload(TYPE_JSON, json_body)
+    client.publish("$dp", packet, qos=1)  # qos代表服务质量
+
+
+# 从服务器接收发布消息时的回调。
+def on_message(client, userdata, msg):
+    print("温度:" + str(msg.payload, 'utf-8') + "℃")
+
+
+# 当消息已经被发送给中间人，on_publish()回调将会被触发
+def on_publish(client, userdata, mid):
+    print("mid:" + str(mid))
+    client.on_connect = on_connect
+    client.on_publish = on_publish
+    client.on_message = on_message
+    client.username_pw_set(username=PRO_ID, password=AUTH_INFO)
+    client.connect('183.230.40.39', port=6002, keepalive=120)
+
+
+def main():
+    client = mqtt.Client(client_id=DEV_ID, protocol=mqtt.MQTTv311)
+    client.on_connect = on_connect
+    client.on_publish = on_publish
+    client.on_message = on_message
+    client.username_pw_set(username=PRO_ID, password=AUTH_INFO)
+    client.connect('183.230.40.39', port=6002, keepalive=120)
+    client.loop_forever()
+
+
+if __name__ == '__main__':
+    while True:
+        main()
